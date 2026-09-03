@@ -16,7 +16,8 @@ function TypewriterMarkdown({ content, speed = 30, onComplete }) {
     setIsComplete(false);
 
     const interval = setInterval(() => {
-      indexRef.current += 1;
+      indexRef.current += 3;
+      if (indexRef.current > content.length) indexRef.current = content.length;
       const nextChunk = content.slice(0, indexRef.current);
       setDisplayedText(nextChunk);
 
@@ -171,7 +172,7 @@ function App() {
                     index === animatingIndex ? (
                       <TypewriterMarkdown 
                         content={msg.content} 
-                        speed={5}
+                        speed={1}
                         onComplete={() => setAnimatingIndex(-1)}
                       />
                     ) : (
