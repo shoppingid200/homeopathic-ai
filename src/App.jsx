@@ -106,9 +106,9 @@ function App() {
   };
 
   const suggestionPills = [
-    { title: "Cold & Flu", desc: "Remedies for common cold symptoms", icon: "🤧" },
-    { title: "Stress Relief", desc: "Natural ways to manage daily stress", icon: "🌿" },
-    { title: "Sleep Aid", desc: "Homeopathic options for better sleep", icon: "🌙" }
+    { title: "Write an Email", desc: "Draft a professional email quickly", icon: "✉️" },
+    { title: "Explain Code", desc: "Break down complex coding concepts", icon: "💻" },
+    { title: "Brainstorm Ideas", desc: "Get creative inspiration for your next project", icon: "💡" }
   ];
 
   return (
@@ -119,7 +119,7 @@ function App() {
             <span>🌿</span>
           </div>
           <div className="header-title-group">
-            <h1 className="header-title">Homeopathic AI</h1>
+            <h1 className="header-title">Jasimi AI</h1>
             <span className="header-subtitle">by jasimi.org</span>
           </div>
         </div>
@@ -140,13 +140,13 @@ function App() {
         {messages.length === 0 ? (
           <div className="welcome">
             <div className="welcome-icon">🌿</div>
-            <h1>Welcome to Homeopathic AI</h1>
-            <p>Your intelligent assistant for natural remedies and homeopathic guidance, proudly developed by jasimi.org.</p>
+            <h1>Welcome to Jasimi AI</h1>
+            <p>Your intelligent, all-purpose AI assistant, proudly developed by jasimi.org.</p>
             
             <div className="suggestion-grid">
               {suggestionPills.map((sugg, i) => (
                 <div key={i} className="suggestion-card" onClick={() => {
-                  setInput(`What are some homeopathic remedies for ${sugg.title.toLowerCase()}?`);
+                  setInput(`Help me ${sugg.title.toLowerCase()}`);
                 }}>
                   <div className="icon">{sugg.icon}</div>
                   <div className="label">{sugg.title}</div>
@@ -198,7 +198,7 @@ function App() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about homeopathic remedies..."
+            placeholder="Ask me anything..."
             rows={1}
             autoFocus
           />
