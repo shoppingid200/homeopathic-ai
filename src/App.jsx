@@ -7,7 +7,7 @@ function App() {
   const [isTyping, setIsTyping] = useState(false);
   const [attachments, setAttachments] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
-  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isTalkMode, setIsTalkMode] = useState(false);
   const [showMediaMenu, setShowMediaMenu] = useState(false);
@@ -309,9 +309,13 @@ function App() {
     // Stop recording while processing response
     stopRecording();
     
-    // Stop any existing speech synthesis
+    // Stop any existing speech synthesis and unlock audio context for mobile browsers
     if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      const unlock = new SpeechSynthesisUtterance('');
+      unlock.volume = 0;
+      window.speechSynthesis.speak(unlock);
     }
     setIsSpeaking(false);
     isSpeakingRef.current = false;
