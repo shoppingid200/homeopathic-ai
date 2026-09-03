@@ -8,9 +8,20 @@ function App() {
   const [isTyping, setIsTyping] = useState(false);
   const [attachments, setAttachments] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const recognitionRef = useRef(null);
+  const speechSynthesisRef = useRef(window.speechSynthesis);
+
+  const toggleVoice = () => {
+    if (voiceEnabled) {
+      speechSynthesisRef.current?.cancel();
+      setIsSpeaking(false);
+    }
+    setVoiceEnabled(!voiceEnabled);
+  };
   
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -146,6 +157,10 @@ function App() {
       const decoder = new TextDecoder('utf-8');
       
       setIsTyping(false); // Hide the bounce indicator as stream begins
+      
+      let fullResponseBuffer = '';
+      let renderBuffer = '';
+      let lastRenderTime = Date.now();
 
       while (true) {
         const { value, done } = await reader.read();
@@ -158,21 +173,55 @@ function App() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-              setMessages(prev => {
-                const updated = [...prev];
-                const lastIdx = updated.length - 1;
-                updated[lastIdx] = {
-                  ...updated[lastIdx],
-                  content: updated[lastIdx].content + data.text
-                };
-                return updated;
-              });
+              fullResponseBuffer += data.text;
+              renderBuffer += data.text;
+              
+              const now = Date.now();
+              // Throttle UI updates to every 50ms to prevent ReactMarkdown lag
+              if (now - lastRenderTime > 50) {
+                const currentRenderBuffer = renderBuffer;
+                renderBuffer = '';
+                lastRenderTime = now;
+                setMessages(prev => {
+                  const updated = [...prev];
+                  const lastIdx = updated.length - 1;
+                  updated[lastIdx] = {
+                    ...updated[lastIdx],
+                    content: updated[lastIdx].content + currentRenderBuffer
+                  };
+                  return updated;
+                });
+              }
             } catch (e) {
               // Ignore partial JSON parsing errors
             }
           }
         }
       }
+      
+      // Final flush of remaining text
+      if (renderBuffer) {
+        setMessages(prev => {
+          const updated = [...prev];
+          const lastIdx = updated.length - 1;
+          updated[lastIdx] = {
+            ...updated[lastIdx],
+            content: updated[lastIdx].content + renderBuffer
+          };
+          return updated;
+        });
+      }
+
+      // Handle Text to Speech
+      if (voiceEnabled && speechSynthesisRef.current) {
+        setIsSpeaking(true);
+        // Strip markdown before speaking (basic regex)
+        const textToSpeak = fullResponseBuffer.replace(/[*_~`]/g, '');
+        const utterance = new SpeechSynthesisUtterance(textToSpeak);
+        utterance.onend = () => setIsSpeaking(false);
+        speechSynthesisRef.current.speak(utterance);
+      }
+
     } catch (error) {
       console.error("Error generating response:", error);
       setIsTyping(false);
@@ -222,6 +271,13 @@ function App() {
           </div>
         </div>
         <div style={{display: 'flex', gap: '12px', alignItems: 'center'}}>
+          <button 
+            className={`voice-toggle-btn ${voiceEnabled ? 'active' : ''} ${isSpeaking ? 'speaking' : ''}`}
+            onClick={toggleVoice}
+            title={voiceEnabled ? "Mute AI Voice" : "Enable AI Voice"}
+          >
+            {isSpeaking ? '🗣️' : (voiceEnabled ? '🔊' : '🔇')}
+          </button>
           {messages.length > 0 && (
             <button className="new-chat-btn" onClick={clearChat} title="New Chat">
               <span>🔄</span> New Session
