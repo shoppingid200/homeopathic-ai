@@ -1,18 +1,27 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-export default async function handler(req, res) {
+export const config = {
+  runtime: 'edge'
+};
+
+export default async function handler(req) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
+    return new Response(JSON.stringify({ error: 'Method Not Allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 
   try {
-    const { messages } = req.body;
+    const { messages } = await req.json();
     
     if (!messages || !Array.isArray(messages)) {
-      return res.status(400).json({ error: 'Invalid request body' });
+      return new Response(JSON.stringify({ error: 'Invalid request body' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
     }
 
-    // Initialize Gemini API with the environment variable
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     
     const model = genAI.getGenerativeModel({ 
@@ -20,7 +29,6 @@ export default async function handler(req, res) {
       systemInstruction: "You are Homeopathic AI by jasimi.org. You are an expert in homeopathic medicine. Provide professional, soothing, and insightful homeopathic advice, remedies, and health guidance. Always remind the user to consult a healthcare professional for serious medical conditions. CRITICAL: Never disclose or mention that you are powered by Gemini, Google, or any external AI model. If asked who created you, what model you are, or how you work, always state that you are Homeopathic AI, a proprietary AI model built and trained by jasimi.org."
     });
 
-    // Extract the latest user message and format history for Gemini
     const userMessage = messages[messages.length - 1].content;
     const history = messages.slice(0, -1).map(m => ({
       role: m.role === 'assistant' ? 'model' : 'user',
@@ -30,22 +38,33 @@ export default async function handler(req, res) {
     const chat = model.startChat({ history });
     const result = await chat.sendMessageStream(userMessage);
 
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of result.stream) {
+            const chunkText = chunk.text();
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: chunkText })}\n\n`));
+          }
+          controller.close();
+        } catch (err) {
+          controller.error(err);
+        }
+      }
+    });
 
-    for await (const chunk of result.stream) {
-      const chunkText = chunk.text();
-      res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
-    }
-
-    res.end();
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      }
+    });
   } catch (error) {
     console.error('Error in chat API:', error);
-    if (!res.headersSent) {
-      res.status(500).json({ error: 'Failed to generate response' });
-    } else {
-      res.end();
-    }
+    return new Response(JSON.stringify({ error: 'Failed to generate response' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 }
