@@ -11,6 +11,8 @@ function App() {
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isTalkMode, setIsTalkMode] = useState(false);
+  const [showMediaMenu, setShowMediaMenu] = useState(false);
+  const mediaMenuRef = useRef(null);
 
   // State refs to eliminate stale closure bugs
   const messagesRef = useRef(messages);
@@ -47,6 +49,21 @@ function App() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
+
+  // Close media menu on outside click/tap
+  useEffect(() => {
+    const handlePointerDown = (e) => {
+      if (mediaMenuRef.current && !mediaMenuRef.current.contains(e.target)) {
+        setShowMediaMenu(false);
+      }
+    };
+    if (showMediaMenu) {
+      document.addEventListener('pointerdown', handlePointerDown);
+    }
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [showMediaMenu]);
 
   // Safe Speech Recognition Starter
   const startRecording = useCallback(() => {
@@ -671,28 +688,53 @@ function App() {
                 accept="image/*,.pdf,.txt,.csv,.html,.rtf" 
                 onChange={handleFileSelect} 
               />
-              <button 
-                type="button" 
-                className="input-action-btn" 
-                title="Attach Image"
-                onClick={() => {
-                  fileInputRef.current.accept = "image/*";
-                  fileInputRef.current.click();
-                }}
-              >
-                🖼️
-              </button>
-              <button 
-                type="button" 
-                className="input-action-btn" 
-                title="Attach Document"
-                onClick={() => {
-                  fileInputRef.current.accept = ".pdf,.txt,.csv,.html,.rtf";
-                  fileInputRef.current.click();
-                }}
-              >
-                📄
-              </button>
+              <div className="media-menu-container" ref={mediaMenuRef}>
+                <button 
+                  type="button" 
+                  className={`add-media-btn ${showMediaMenu ? 'active' : ''}`} 
+                  title="Add Media & Documents"
+                  onClick={() => setShowMediaMenu(prev => !prev)}
+                >
+                  <span className="plus-icon">+</span>
+                  <span className="add-media-label">Add Media</span>
+                </button>
+
+                {showMediaMenu && (
+                  <div className="media-dropdown-menu">
+                    <button 
+                      type="button" 
+                      className="media-dropdown-item"
+                      onClick={() => {
+                        setShowMediaMenu(false);
+                        fileInputRef.current.accept = "image/*";
+                        fileInputRef.current.click();
+                      }}
+                    >
+                      <span className="media-item-icon">🖼️</span>
+                      <div className="media-item-info">
+                        <span className="media-item-title">Upload Image</span>
+                        <span className="media-item-desc">Photos, Diagrams</span>
+                      </div>
+                    </button>
+
+                    <button 
+                      type="button" 
+                      className="media-dropdown-item"
+                      onClick={() => {
+                        setShowMediaMenu(false);
+                        fileInputRef.current.accept = ".pdf,.txt,.csv,.html,.rtf";
+                        fileInputRef.current.click();
+                      }}
+                    >
+                      <span className="media-item-icon">📄</span>
+                      <div className="media-item-info">
+                        <span className="media-item-title">Upload Document</span>
+                        <span className="media-item-desc">PDF, TXT, CSV, Docs</span>
+                      </div>
+                    </button>
+                  </div>
+                )}
+              </div>
               
               <textarea 
                 value={input}
