@@ -171,7 +171,7 @@ function App() {
                     index === animatingIndex ? (
                       <TypewriterMarkdown 
                         content={msg.content} 
-                        speed={18}
+                        speed={5}
                         onComplete={() => setAnimatingIndex(-1)}
                       />
                     ) : (
