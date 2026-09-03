@@ -396,9 +396,7 @@ function App() {
       
       setIsTyping(false);
       
-      let renderBuffer = '';
       let speechBuffer = '';
-      let lastRenderTime = Date.now();
       const sentenceRegex = /([.?!:])(\s|\n|$)/;
 
       while (true) {
@@ -431,38 +429,22 @@ function App() {
                 }
               }
               
-              const now = Date.now();
-              if (now - lastRenderTime > 50) {
-                const currentRenderBuffer = renderBuffer;
-                renderBuffer = '';
-                lastRenderTime = now;
-                setMessages(prev => {
-                  const updated = [...prev];
-                  const lastIdx = updated.length - 1;
-                  updated[lastIdx] = {
-                    ...updated[lastIdx],
-                    content: updated[lastIdx].content + currentRenderBuffer
-                  };
-                  return updated;
-                });
-              }
+              
+              setMessages(prev => {
+                const updated = [...prev];
+                const lastIdx = updated.length - 1;
+                updated[lastIdx] = {
+                  ...updated[lastIdx],
+                  content: updated[lastIdx].content + newText
+                };
+                return updated;
+              });
             } catch (e) {}
           }
         }
       }
       
-      // Final flush of remaining text to screen
-      if (renderBuffer) {
-        setMessages(prev => {
-          const updated = [...prev];
-          const lastIdx = updated.length - 1;
-          updated[lastIdx] = {
-            ...updated[lastIdx],
-            content: updated[lastIdx].content + renderBuffer
-          };
-          return updated;
-        });
-      }
+      // Final flush not needed anymore because we render instantly
 
       // Speak any remaining sentence fragment
       if (shouldSpeak && speechBuffer.trim()) {
