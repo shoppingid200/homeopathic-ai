@@ -235,9 +235,8 @@ function App() {
     setInput('');
     inputRef.current = '';
 
-    setTimeout(() => {
-      startRecording();
-    }, 200);
+    // Start recording synchronously to pass mobile browser user-gesture requirements
+    startRecording();
   };
 
   const exitTalkMode = () => {
