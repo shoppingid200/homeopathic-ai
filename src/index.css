@@ -340,15 +340,27 @@ body {
 }
 
 .giant-mic.recording {
-  background: rgba(239, 68, 68, 0.1);
+  background: rgba(239, 68, 68, 0.15);
   border-color: #ef4444;
-  animation: pulse-giant-red 2s infinite;
+  animation: pulse-giant-red 1.8s infinite;
 }
 
 @keyframes pulse-giant-red {
   0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
   70% { box-shadow: 0 0 0 30px rgba(239, 68, 68, 0); }
   100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+.giant-mic.speaking {
+  background: rgba(96, 165, 250, 0.2);
+  border-color: var(--color-accent);
+  animation: pulse-giant-blue 1.8s infinite;
+}
+
+@keyframes pulse-giant-blue {
+  0% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.6); }
+  70% { box-shadow: 0 0 0 30px rgba(96, 165, 250, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0); }
 }
 
 .talk-mode-text-display {

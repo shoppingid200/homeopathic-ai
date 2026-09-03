@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import './App.css';
 
@@ -11,22 +11,35 @@ function App() {
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isTalkMode, setIsTalkMode] = useState(false);
-  const isTalkModeRef = useRef(false);
-  const inputRef = useRef('');
-  
+
+  // State refs to eliminate stale closure bugs
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
+
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+
+  const voiceEnabledRef = useRef(voiceEnabled);
+  voiceEnabledRef.current = voiceEnabled;
+
+  const isTalkModeRef = useRef(isTalkMode);
+  isTalkModeRef.current = isTalkMode;
+
+  const inputRef = useRef(input);
+  inputRef.current = input;
+
+  const isSpeakingRef = useRef(false);
+  isSpeakingRef.current = isSpeaking;
+
+  const isRecordingRef = useRef(false);
+  isRecordingRef.current = isRecording;
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const recognitionRef = useRef(null);
-  const speechSynthesisRef = useRef(window.speechSynthesis);
+  const handleSendRef = useRef(null);
+  const activeUtterancesRef = useRef([]);
 
-  const toggleVoice = () => {
-    if (voiceEnabled) {
-      speechSynthesisRef.current?.cancel();
-      setIsSpeaking(false);
-    }
-    setVoiceEnabled(!voiceEnabled);
-  };
-  
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -35,66 +48,191 @@ function App() {
     scrollToBottom();
   }, [messages, isTyping]);
 
-  useEffect(() => {
-    isTalkModeRef.current = isTalkMode;
-    if (isTalkMode && !voiceEnabled) {
-      setVoiceEnabled(true);
+  // Safe Speech Recognition Starter
+  const startRecording = useCallback(() => {
+    if (!recognitionRef.current) return;
+    if (isSpeakingRef.current) return; // Don't record while AI is speaking
+
+    try {
+      recognitionRef.current.abort();
+    } catch (e) {}
+
+    try {
+      recognitionRef.current.start();
+      setIsRecording(true);
+      isRecordingRef.current = true;
+    } catch (e) {
+      console.warn("Could not start speech recognition:", e);
     }
-  }, [isTalkMode, voiceEnabled]);
+  }, []);
 
-  useEffect(() => {
-    inputRef.current = input;
-  }, [input]);
+  const stopRecording = useCallback(() => {
+    if (!recognitionRef.current) return;
+    try {
+      recognitionRef.current.stop();
+    } catch (e) {}
+    setIsRecording(false);
+    isRecordingRef.current = false;
+  }, []);
 
+  // Initialize Speech Recognition once
   useEffect(() => {
-    // Initialize Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
-      recognitionRef.current = new SpeechRecognition();
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = false;
-      recognitionRef.current.lang = 'en-US';
+      const recognizer = new SpeechRecognition();
+      recognizer.continuous = false;
+      recognizer.interimResults = true;
+      recognizer.lang = 'en-US';
 
-      recognitionRef.current.onresult = (event) => {
-        const transcript = event.results[0][0].transcript;
-        setInput((prev) => prev + (prev ? ' ' : '') + transcript);
+      recognizer.onresult = (event) => {
+        let transcript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        setInput(transcript);
+        inputRef.current = transcript;
       };
 
-      recognitionRef.current.onend = () => {
+      recognizer.onend = () => {
         setIsRecording(false);
+        isRecordingRef.current = false;
+
         if (isTalkModeRef.current) {
-          if (inputRef.current.trim()) {
-            // Document triggers a synthetic submit event equivalent
-            handleSend(null, inputRef.current);
-          } else {
-            // If nothing was heard, just keep listening
-            setTimeout(() => toggleRecording(true), 500);
+          const spokenText = inputRef.current.trim();
+          if (spokenText) {
+            handleSendRef.current?.(null, spokenText);
+          } else if (!isSpeakingRef.current) {
+            // Nothing was heard, reopen mic smoothly after a brief pause
+            setTimeout(() => {
+              if (isTalkModeRef.current && !isSpeakingRef.current && !isRecordingRef.current) {
+                startRecording();
+              }
+            }, 400);
           }
         }
       };
 
-      recognitionRef.current.onerror = (event) => {
-        console.error('Speech recognition error', event.error);
+      recognizer.onerror = (event) => {
+        console.warn('Speech recognition error:', event.error);
         setIsRecording(false);
-        if (isTalkModeRef.current) {
-          setTimeout(() => toggleRecording(true), 1000);
+        isRecordingRef.current = false;
+
+        if (event.error === 'not-allowed') {
+          alert("Microphone permission was denied. Please allow microphone access in your browser.");
+          setIsTalkMode(false);
+          isTalkModeRef.current = false;
+          return;
+        }
+
+        if (isTalkModeRef.current && !isSpeakingRef.current) {
+          setTimeout(() => {
+            if (isTalkModeRef.current && !isSpeakingRef.current && !isRecordingRef.current) {
+              startRecording();
+            }
+          }, 600);
         }
       };
+
+      recognitionRef.current = recognizer;
     }
+  }, [startRecording]);
+
+  // Robust Text-to-Speech Helper with Garbage Collection prevention
+  const speakSentence = useCallback((text, onComplete) => {
+    if (!('speechSynthesis' in window)) {
+      onComplete?.();
+      return;
+    }
+
+    const cleanText = text.replace(/[*_~`#>-]/g, '').trim();
+    if (!cleanText) {
+      onComplete?.();
+      return;
+    }
+
+    try {
+      window.speechSynthesis.resume();
+    } catch (e) {}
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'en-US';
+    utterance.rate = 1.05;
+
+    activeUtterancesRef.current.push(utterance);
+
+    const cleanup = () => {
+      activeUtterancesRef.current = activeUtterancesRef.current.filter(u => u !== utterance);
+      onComplete?.();
+    };
+
+    utterance.onend = cleanup;
+    utterance.onerror = (e) => {
+      console.warn("Speech error:", e);
+      cleanup();
+    };
+
+    window.speechSynthesis.speak(utterance);
   }, []);
 
-  const toggleRecording = (forceStart = false) => {
-    if (isRecording && !forceStart) {
-      recognitionRef.current?.stop();
-      setIsRecording(false);
-    } else {
-      if (recognitionRef.current && !isRecording) {
-        recognitionRef.current.start();
-        setIsRecording(true);
-      } else if (!recognitionRef.current) {
-        alert("Voice recognition is not supported in this browser.");
+  const toggleVoice = () => {
+    if (voiceEnabled) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
       }
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+      setVoiceEnabled(false);
+      voiceEnabledRef.current = false;
+    } else {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.resume();
+        const unlock = new SpeechSynthesisUtterance('Voice enabled');
+        unlock.lang = 'en-US';
+        window.speechSynthesis.speak(unlock);
+      }
+      setVoiceEnabled(true);
+      voiceEnabledRef.current = true;
     }
+  };
+
+  const enterTalkMode = () => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
+      return;
+    }
+
+    // Audio context unlock
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      const unlock = new SpeechSynthesisUtterance('');
+      unlock.volume = 0;
+      window.speechSynthesis.speak(unlock);
+    }
+
+    setIsTalkMode(true);
+    isTalkModeRef.current = true;
+    setVoiceEnabled(true);
+    voiceEnabledRef.current = true;
+    setInput('');
+    inputRef.current = '';
+
+    setTimeout(() => {
+      startRecording();
+    }, 200);
+  };
+
+  const exitTalkMode = () => {
+    setIsTalkMode(false);
+    isTalkModeRef.current = false;
+    stopRecording();
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+    isSpeakingRef.current = false;
   };
 
   const handleFileSelect = (e) => {
@@ -105,7 +243,6 @@ function App() {
     }
 
     files.forEach(file => {
-      // Check size (e.g., 4MB limit to stay under Vercel's 4.5MB total limit)
       if (file.size > 4 * 1024 * 1024) {
         alert(`File ${file.name} is too large. Limit is 4MB.`);
         return;
@@ -124,7 +261,6 @@ function App() {
       reader.readAsDataURL(file);
     });
     
-    // Reset input
     e.target.value = null;
   };
 
@@ -135,13 +271,26 @@ function App() {
   const handleSend = async (e, textOverride) => {
     e?.preventDefault();
     
-    const userText = (textOverride !== undefined ? textOverride : input).trim();
-    if (!userText && attachments.length === 0) return;
+    const userText = (textOverride !== undefined && textOverride !== null ? textOverride : input).trim();
+    const currentAttachments = [...attachmentsRef.current];
+    
+    if (!userText && currentAttachments.length === 0) return;
     
     setInput('');
-    const currentAttachments = [...attachments];
+    inputRef.current = '';
     setAttachments([]);
+    attachmentsRef.current = [];
     
+    // Stop recording while processing response
+    stopRecording();
+    
+    // Stop any existing speech synthesis
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setIsSpeaking(false);
+    isSpeakingRef.current = false;
+
     // Build parts array for API
     const parts = [];
     if (userText) parts.push({ text: userText });
@@ -154,7 +303,7 @@ function App() {
       });
     });
 
-    const newMessages = [...messages, { 
+    const newMessages = [...messagesRef.current, { 
       role: 'user', 
       content: userText, 
       parts: parts,
@@ -162,10 +311,40 @@ function App() {
       timestamp: new Date() 
     }];
     setMessages(newMessages);
+    messagesRef.current = newMessages;
     setIsTyping(true);
 
-    // Create placeholder for assistant response
+    // Placeholder for assistant response
     setMessages(prev => [...prev, { role: 'assistant', content: '', timestamp: new Date() }]);
+
+    const shouldSpeak = isTalkModeRef.current || voiceEnabledRef.current;
+    let pendingUtterances = 0;
+    let isStreamComplete = false;
+
+    const checkAllSpeechDone = () => {
+      if (isStreamComplete && pendingUtterances === 0) {
+        setIsSpeaking(false);
+        isSpeakingRef.current = false;
+        if (isTalkModeRef.current) {
+          setTimeout(() => {
+            if (isTalkModeRef.current && !isSpeakingRef.current && !isRecordingRef.current) {
+              startRecording();
+            }
+          }, 350);
+        }
+      }
+    };
+
+    const queueSentence = (sentenceText) => {
+      if (!shouldSpeak) return;
+      setIsSpeaking(true);
+      isSpeakingRef.current = true;
+      pendingUtterances++;
+      speakSentence(sentenceText, () => {
+        pendingUtterances--;
+        checkAllSpeechDone();
+      });
+    };
 
     try {
       const response = await fetch('/api/chat', {
@@ -183,12 +362,12 @@ function App() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
       
-      setIsTyping(false); // Hide the bounce indicator as stream begins
+      setIsTyping(false);
       
       let renderBuffer = '';
       let speechBuffer = '';
       let lastRenderTime = Date.now();
-      const sentenceRegex = /([.?!])(\s|\n|$)/;
+      const sentenceRegex = /([.?!:])(\s|\n|$)/;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -205,26 +384,22 @@ function App() {
               renderBuffer += newText;
               speechBuffer += newText;
               
-              // Handle streaming TTS
-              if (voiceEnabled && speechSynthesisRef.current) {
+              // Extract and stream sentences to TTS immediately!
+              if (shouldSpeak) {
                 let match = speechBuffer.match(sentenceRegex);
                 while (match) {
-                  const index = match.index + match[1].length;
-                  const sentence = speechBuffer.slice(0, index);
-                  speechBuffer = speechBuffer.slice(index).trimStart();
+                  const cutIndex = match.index + match[1].length;
+                  const sentence = speechBuffer.slice(0, cutIndex);
+                  speechBuffer = speechBuffer.slice(cutIndex).trimStart();
                   
-                  if (sentence.trim().length > 1) { // avoid speaking just punctuation
-                    setIsSpeaking(true);
-                    const textToSpeak = sentence.replace(/[*_~`#]/g, '');
-                    const utterance = new SpeechSynthesisUtterance(textToSpeak);
-                    speechSynthesisRef.current.speak(utterance);
+                  if (sentence.trim().length > 1) {
+                    queueSentence(sentence);
                   }
                   match = speechBuffer.match(sentenceRegex);
                 }
               }
               
               const now = Date.now();
-              // Throttle UI updates to every 50ms to prevent ReactMarkdown lag
               if (now - lastRenderTime > 50) {
                 const currentRenderBuffer = renderBuffer;
                 renderBuffer = '';
@@ -239,14 +414,12 @@ function App() {
                   return updated;
                 });
               }
-            } catch (e) {
-              // Ignore partial JSON parsing errors
-            }
+            } catch (e) {}
           }
         }
       }
       
-      // Final flush of remaining text
+      // Final flush of remaining text to screen
       if (renderBuffer) {
         setMessages(prev => {
           const updated = [...prev];
@@ -259,35 +432,14 @@ function App() {
         });
       }
 
-      // Final speech flush and mic restart
-      if (voiceEnabled && speechSynthesisRef.current) {
-        if (speechBuffer.trim()) {
-          setIsSpeaking(true);
-          const textToSpeak = speechBuffer.replace(/[*_~`#]/g, '');
-          const utterance = new SpeechSynthesisUtterance(textToSpeak);
-          utterance.onend = () => {
-            setIsSpeaking(false);
-            if (isTalkModeRef.current) {
-              setTimeout(() => toggleRecording(true), 500);
-            }
-          };
-          speechSynthesisRef.current.speak(utterance);
-        } else {
-          // If no remaining text, push a dummy utterance to detect when the queue finishes
-          const dummyUtterance = new SpeechSynthesisUtterance(' ');
-          dummyUtterance.volume = 0; // silent
-          dummyUtterance.onend = () => {
-            setIsSpeaking(false);
-            if (isTalkModeRef.current) {
-              setTimeout(() => toggleRecording(true), 500);
-            }
-          };
-          speechSynthesisRef.current.speak(dummyUtterance);
-        }
-      } else if (isTalkModeRef.current) {
-        // If voice is somehow off but we are in talk mode, just restart listening
-        setTimeout(() => toggleRecording(true), 500);
+      // Speak any remaining sentence fragment
+      if (shouldSpeak && speechBuffer.trim()) {
+        queueSentence(speechBuffer);
+        speechBuffer = '';
       }
+
+      isStreamComplete = true;
+      checkAllSpeechDone();
 
     } catch (error) {
       console.error("Error generating response:", error);
@@ -298,15 +450,21 @@ function App() {
         if (updated[lastIdx].content === '') {
           updated[lastIdx] = { 
             role: 'assistant', 
-            content: "I'm sorry, I'm having trouble connecting to my knowledge base right now. Please try again later.",
+            content: "I'm sorry, I encountered an issue while generating a response. Please try again.",
             isError: true,
             timestamp: new Date()
           };
         }
         return updated;
       });
+
+      isStreamComplete = true;
+      checkAllSpeechDone();
     }
   };
+
+  // Always keep handleSendRef fresh
+  handleSendRef.current = handleSend;
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -317,6 +475,7 @@ function App() {
 
   const clearChat = () => {
     setMessages([]);
+    messagesRef.current = [];
   };
 
   const suggestionPills = [
@@ -324,6 +483,8 @@ function App() {
     { title: "Explain Code", desc: "Break down complex coding concepts", icon: "💻" },
     { title: "Brainstorm Ideas", desc: "Get creative inspiration for your next project", icon: "💡" }
   ];
+
+  const latestAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant')?.content;
 
   return (
     <div className="app">
@@ -360,34 +521,57 @@ function App() {
       {isTalkMode ? (
         <main className="talk-mode-overlay">
           <div className="talk-mode-content">
-            <div className={`giant-mic ${isRecording ? 'recording' : ''}`} onClick={() => toggleRecording()}>
-              🎙️
+            <div 
+              className={`giant-mic ${isRecording ? 'recording' : ''} ${isSpeaking ? 'speaking' : ''}`}
+              onClick={() => {
+                if (isSpeaking) {
+                  // Interrupt AI speech and listen immediately
+                  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+                  setIsSpeaking(false);
+                  isSpeakingRef.current = false;
+                  startRecording();
+                } else if (isRecording) {
+                  // Tap to submit spoken text or pause
+                  if (inputRef.current.trim()) {
+                    stopRecording();
+                    handleSendRef.current?.(null, inputRef.current);
+                  } else {
+                    stopRecording();
+                  }
+                } else {
+                  startRecording();
+                }
+              }}
+              title={isSpeaking ? "Tap to interrupt AI" : isRecording ? "Tap to send or pause" : "Tap to speak"}
+            >
+              {isSpeaking ? '🗣️' : (isRecording ? '🎙️' : '▶️')}
             </div>
             
             <div className="talk-mode-text-display">
               {isSpeaking ? (
                 <div className="ai-speaking-text">
-                  <span className="speaker-label">Jasimi AI</span>
-                  <p>{messages[messages.length - 1]?.content}</p>
+                  <span className="speaker-label">Jasimi AI Speaking</span>
+                  <p>{latestAssistantMessage || "Speaking..."}</p>
                 </div>
               ) : isRecording ? (
                 <div className="user-speaking-text">
-                  <span className="speaker-label">Listening...</span>
+                  <span className="speaker-label">Listening... (speak now)</span>
                   <p>{input || "..."}</p>
                 </div>
               ) : isTyping ? (
                 <div className="ai-thinking-text">
-                  <span className="speaker-label">Thinking...</span>
+                  <span className="speaker-label">Jasimi AI is thinking...</span>
                 </div>
-              ) : null}
+              ) : (
+                <div className="user-speaking-text">
+                  <span className="speaker-label">Paused</span>
+                  <p>Tap the mic to talk</p>
+                </div>
+              )}
             </div>
           </div>
-          <button className="exit-talk-btn" onClick={() => {
-            setIsTalkMode(false);
-            toggleRecording(false);
-            speechSynthesisRef.current?.cancel();
-          }}>
-            End Call
+          <button className="exit-talk-btn" onClick={exitTalkMode}>
+            ✕ Exit Talk Mode
           </button>
         </main>
       ) : (
@@ -523,10 +707,7 @@ function App() {
                 type="button" 
                 className="start-talk-mode-btn"
                 title="Start Hands-Free Talk Mode"
-                onClick={() => {
-                  setIsTalkMode(true);
-                  toggleRecording(true);
-                }}
+                onClick={enterTalkMode}
               >
                 🎙️ Talk Mode
               </button>
