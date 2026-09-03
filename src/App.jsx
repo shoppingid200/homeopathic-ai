@@ -1,11 +1,48 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import './App.css';
+
+// Typewriter component that reveals text word by word
+function TypewriterMarkdown({ content, speed = 30, onComplete }) {
+  const [displayedText, setDisplayedText] = useState('');
+  const [isComplete, setIsComplete] = useState(false);
+  const indexRef = useRef(0);
+
+  useEffect(() => {
+    if (!content) return;
+    
+    setDisplayedText('');
+    indexRef.current = 0;
+    setIsComplete(false);
+
+    const interval = setInterval(() => {
+      indexRef.current += 1;
+      const nextChunk = content.slice(0, indexRef.current);
+      setDisplayedText(nextChunk);
+
+      if (indexRef.current >= content.length) {
+        clearInterval(interval);
+        setIsComplete(true);
+        onComplete?.();
+      }
+    }, speed);
+
+    return () => clearInterval(interval);
+  }, [content, speed]);
+
+  return (
+    <div className="typewriter-wrapper">
+      <ReactMarkdown>{displayedText}</ReactMarkdown>
+      {!isComplete && <span className="typewriter-cursor">|</span>}
+    </div>
+  );
+}
 
 function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [animatingIndex, setAnimatingIndex] = useState(-1);
   const messagesEndRef = useRef(null);
   
   const scrollToBottom = () => {
@@ -43,7 +80,11 @@ function App() {
 
       const data = await response.json();
       
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply, timestamp: new Date() }]);
+      setMessages(prev => {
+        const updated = [...prev, { role: 'assistant', content: data.reply, timestamp: new Date() }];
+        setAnimatingIndex(updated.length - 1);
+        return updated;
+      });
     } catch (error) {
       console.error("Error generating response:", error);
       setMessages(prev => [...prev, { 
@@ -127,7 +168,15 @@ function App() {
               <div className="message-content">
                 <div className={`message-bubble ${msg.isError ? 'error-bubble' : ''}`}>
                   {msg.role === 'assistant' && !msg.isError ? (
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    index === animatingIndex ? (
+                      <TypewriterMarkdown 
+                        content={msg.content} 
+                        speed={18}
+                        onComplete={() => setAnimatingIndex(-1)}
+                      />
+                    ) : (
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    )
                   ) : (
                     msg.content
                   )}
