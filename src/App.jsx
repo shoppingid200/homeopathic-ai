@@ -10,6 +10,10 @@ function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isTalkMode, setIsTalkMode] = useState(false);
+  const isTalkModeRef = useRef(false);
+  const inputRef = useRef('');
+  
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const recognitionRef = useRef(null);
@@ -32,6 +36,17 @@ function App() {
   }, [messages, isTyping]);
 
   useEffect(() => {
+    isTalkModeRef.current = isTalkMode;
+    if (isTalkMode && !voiceEnabled) {
+      setVoiceEnabled(true);
+    }
+  }, [isTalkMode, voiceEnabled]);
+
+  useEffect(() => {
+    inputRef.current = input;
+  }, [input]);
+
+  useEffect(() => {
     // Initialize Speech Recognition
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
@@ -47,24 +62,36 @@ function App() {
 
       recognitionRef.current.onend = () => {
         setIsRecording(false);
+        if (isTalkModeRef.current) {
+          if (inputRef.current.trim()) {
+            // Document triggers a synthetic submit event equivalent
+            handleSend(null, inputRef.current);
+          } else {
+            // If nothing was heard, just keep listening
+            setTimeout(() => toggleRecording(true), 500);
+          }
+        }
       };
 
       recognitionRef.current.onerror = (event) => {
         console.error('Speech recognition error', event.error);
         setIsRecording(false);
+        if (isTalkModeRef.current) {
+          setTimeout(() => toggleRecording(true), 1000);
+        }
       };
     }
   }, []);
 
-  const toggleRecording = () => {
-    if (isRecording) {
+  const toggleRecording = (forceStart = false) => {
+    if (isRecording && !forceStart) {
       recognitionRef.current?.stop();
       setIsRecording(false);
     } else {
-      if (recognitionRef.current) {
+      if (recognitionRef.current && !isRecording) {
         recognitionRef.current.start();
         setIsRecording(true);
-      } else {
+      } else if (!recognitionRef.current) {
         alert("Voice recognition is not supported in this browser.");
       }
     }
@@ -105,12 +132,12 @@ function App() {
     setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleSend = async (e) => {
+  const handleSend = async (e, textOverride) => {
     e?.preventDefault();
     
-    if (!input.trim() && attachments.length === 0) return;
+    const userText = (textOverride !== undefined ? textOverride : input).trim();
+    if (!userText && attachments.length === 0) return;
     
-    const userText = input.trim();
     setInput('');
     const currentAttachments = [...attachments];
     setAttachments([]);
@@ -216,10 +243,18 @@ function App() {
       if (voiceEnabled && speechSynthesisRef.current) {
         setIsSpeaking(true);
         // Strip markdown before speaking (basic regex)
-        const textToSpeak = fullResponseBuffer.replace(/[*_~`]/g, '');
+        const textToSpeak = fullResponseBuffer.replace(/[*_~`#]/g, '');
         const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.onend = () => setIsSpeaking(false);
+        utterance.onend = () => {
+          setIsSpeaking(false);
+          if (isTalkModeRef.current) {
+            setTimeout(() => toggleRecording(true), 500);
+          }
+        };
         speechSynthesisRef.current.speak(utterance);
+      } else if (isTalkModeRef.current) {
+        // If voice is somehow off but we are in talk mode, just restart listening
+        setTimeout(() => toggleRecording(true), 500);
       }
 
     } catch (error) {
@@ -272,6 +307,22 @@ function App() {
         </div>
         <div style={{display: 'flex', gap: '12px', alignItems: 'center'}}>
           <button 
+            className={`voice-toggle-btn ${isTalkMode ? 'active speaking' : ''}`}
+            onClick={() => {
+              if (isTalkMode) {
+                setIsTalkMode(false);
+                toggleRecording(false);
+                speechSynthesisRef.current?.cancel();
+              } else {
+                setIsTalkMode(true);
+                toggleRecording(true);
+              }
+            }}
+            title={isTalkMode ? "End Talk Mode" : "Start Talk Mode"}
+          >
+            🎙️
+          </button>
+          <button 
             className={`voice-toggle-btn ${voiceEnabled ? 'active' : ''} ${isSpeaking ? 'speaking' : ''}`}
             onClick={toggleVoice}
             title={voiceEnabled ? "Mute AI Voice" : "Enable AI Voice"}
@@ -290,155 +341,192 @@ function App() {
         </div>
       </header>
 
-      <main className="chat-area">
-        {messages.length === 0 ? (
-          <div className="welcome">
-            <div className="welcome-icon">🌿</div>
-            <h1>Welcome to Jasimi AI</h1>
-            <p>Your intelligent, all-purpose AI assistant, proudly developed by jasimi.org.</p>
+      {isTalkMode ? (
+        <main className="talk-mode-overlay">
+          <div className="talk-mode-content">
+            <div className={`giant-mic ${isRecording ? 'recording' : ''}`} onClick={() => toggleRecording()}>
+              🎙️
+            </div>
             
-            <div className="suggestion-grid">
-              {suggestionPills.map((sugg, i) => (
-                <div key={i} className="suggestion-card" onClick={() => {
-                  setInput(`Help me ${sugg.title.toLowerCase()}`);
-                }}>
-                  <div className="icon">{sugg.icon}</div>
-                  <div className="label">{sugg.title}</div>
-                  <div className="desc">{sugg.desc}</div>
+            <div className="talk-mode-text-display">
+              {isSpeaking ? (
+                <div className="ai-speaking-text">
+                  <span className="speaker-label">Jasimi AI</span>
+                  <p>{messages[messages.length - 1]?.content}</p>
                 </div>
-              ))}
+              ) : isRecording ? (
+                <div className="user-speaking-text">
+                  <span className="speaker-label">Listening...</span>
+                  <p>{input || "..."}</p>
+                </div>
+              ) : isTyping ? (
+                <div className="ai-thinking-text">
+                  <span className="speaker-label">Thinking...</span>
+                </div>
+              ) : null}
             </div>
           </div>
-        ) : (
-          messages.map((msg, index) => (
-            <div key={index} className={`message ${msg.role}`}>
-              <div className="message-avatar">
-                {msg.role === 'assistant' ? '🌿' : '👤'}
-              </div>
-              <div className="message-content">
-                <div className={`message-bubble ${msg.isError ? 'error-bubble' : ''}`}>
-                  {msg.attachments && msg.attachments.length > 0 && (
-                    <div className="message-attachments-display">
-                      {msg.attachments.map((att, i) => (
-                        <div key={i} className="attachment-item-display" title={att.name}>
-                          {att.previewUrl ? (
-                            <img src={att.previewUrl} alt={att.name} />
-                          ) : (
-                            <div className="doc-icon">📄</div>
-                          )}
-                          <span className="attachment-name-display">{att.name}</span>
-                        </div>
-                      ))}
+          <button className="exit-talk-btn" onClick={() => {
+            setIsTalkMode(false);
+            toggleRecording(false);
+            speechSynthesisRef.current?.cancel();
+          }}>
+            End Call
+          </button>
+        </main>
+      ) : (
+        <>
+          <main className="chat-area">
+            {messages.length === 0 ? (
+              <div className="welcome">
+                <div className="welcome-icon">🌿</div>
+                <h1>Welcome to Jasimi AI</h1>
+                <p>Your intelligent, all-purpose AI assistant, proudly developed by jasimi.org.</p>
+                
+                <div className="suggestion-grid">
+                  {suggestionPills.map((sugg, i) => (
+                    <div key={i} className="suggestion-card" onClick={() => {
+                      setInput(`Help me ${sugg.title.toLowerCase()}`);
+                    }}>
+                      <div className="icon">{sugg.icon}</div>
+                      <div className="label">{sugg.title}</div>
+                      <div className="desc">{sugg.desc}</div>
                     </div>
-                  )}
-                  {msg.role === 'assistant' && !msg.isError ? (
-                    <ReactMarkdown>{msg.content}</ReactMarkdown>
-                  ) : (
-                    msg.content
-                  )}
-                </div>
-                <div className="message-time">
-                  {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  ))}
                 </div>
               </div>
-            </div>
-          ))
-        )}
+            ) : (
+              messages.map((msg, index) => (
+                <div key={index} className={`message ${msg.role}`}>
+                  <div className="message-avatar">
+                    {msg.role === 'assistant' ? '🌿' : '👤'}
+                  </div>
+                  <div className="message-content">
+                    <div className={`message-bubble ${msg.isError ? 'error-bubble' : ''}`}>
+                      {msg.attachments && msg.attachments.length > 0 && (
+                        <div className="message-attachments-display">
+                          {msg.attachments.map((att, i) => (
+                            <div key={i} className="attachment-item-display" title={att.name}>
+                              {att.previewUrl ? (
+                                <img src={att.previewUrl} alt={att.name} />
+                              ) : (
+                                <div className="doc-icon">📄</div>
+                              )}
+                              <span className="attachment-name-display">{att.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {msg.role === 'assistant' && !msg.isError ? (
+                        <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      ) : (
+                        msg.content
+                      )}
+                    </div>
+                    <div className="message-time">
+                      {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
 
-        {isTyping && (
-          <div className="message assistant">
-            <div className="message-avatar">🌿</div>
-            <div className="message-content">
-              <div className="message-bubble typing-indicator">
-                <div className="typing-dot"></div>
-                <div className="typing-dot"></div>
-                <div className="typing-dot"></div>
+            {isTyping && (
+              <div className="message assistant">
+                <div className="message-avatar">🌿</div>
+                <div className="message-content">
+                  <div className="message-bubble typing-indicator">
+                    <div className="typing-dot"></div>
+                    <div className="typing-dot"></div>
+                    <div className="typing-dot"></div>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
-        <div ref={messagesEndRef} />
-      </main>
+            )}
+            <div ref={messagesEndRef} />
+          </main>
 
-      <footer className="input-area">
-        {attachments.length > 0 && (
-          <div className="attachments-preview-bar">
-            {attachments.map((att, i) => (
-              <div key={i} className="attachment-preview-item">
-                {att.previewUrl ? (
-                  <img src={att.previewUrl} alt="preview" />
-                ) : (
-                  <div className="doc-icon">📄</div>
-                )}
-                <span className="att-name">{att.name}</span>
-                <button type="button" onClick={() => removeAttachment(i)} className="remove-att-btn">×</button>
+          <footer className="input-area">
+            {attachments.length > 0 && (
+              <div className="attachments-preview-bar">
+                {attachments.map((att, i) => (
+                  <div key={i} className="attachment-preview-item">
+                    {att.previewUrl ? (
+                      <img src={att.previewUrl} alt="preview" />
+                    ) : (
+                      <div className="doc-icon">📄</div>
+                    )}
+                    <span className="att-name">{att.name}</span>
+                    <button type="button" onClick={() => removeAttachment(i)} className="remove-att-btn">×</button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
-        <form className="input-container" onSubmit={handleSend}>
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            style={{ display: 'none' }} 
-            multiple 
-            accept="image/*,.pdf,.txt,.csv,.html,.rtf" 
-            onChange={handleFileSelect} 
-          />
-          <button 
-            type="button" 
-            className="input-action-btn" 
-            title="Attach Image"
-            onClick={() => {
-              fileInputRef.current.accept = "image/*";
-              fileInputRef.current.click();
-            }}
-          >
-            🖼️
-          </button>
-          <button 
-            type="button" 
-            className="input-action-btn" 
-            title="Attach Document"
-            onClick={() => {
-              fileInputRef.current.accept = ".pdf,.txt,.csv,.html,.rtf";
-              fileInputRef.current.click();
-            }}
-          >
-            📄
-          </button>
-          
-          <textarea 
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask me anything..."
-            rows={1}
-            autoFocus
-          />
-          
-          <button 
-            type="button" 
-            className={`input-action-btn mic-btn ${isRecording ? 'recording' : ''}`}
-            title="Voice input"
-            onClick={toggleRecording}
-          >
-            🎤
-          </button>
-          
-          <button 
-            type="submit" 
-            className="send-btn" 
-            disabled={(!input.trim() && attachments.length === 0) || isTyping}
-            title="Send message"
-          >
-            <span>➤</span>
-          </button>
-        </form>
-        <div className="input-hint">
-          Developed by <a href="https://jasimi.org" target="_blank" rel="noreferrer">jasimi.org</a>
-        </div>
-      </footer>
+            )}
+            <form className="input-container" onSubmit={handleSend}>
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                style={{ display: 'none' }} 
+                multiple 
+                accept="image/*,.pdf,.txt,.csv,.html,.rtf" 
+                onChange={handleFileSelect} 
+              />
+              <button 
+                type="button" 
+                className="input-action-btn" 
+                title="Attach Image"
+                onClick={() => {
+                  fileInputRef.current.accept = "image/*";
+                  fileInputRef.current.click();
+                }}
+              >
+                🖼️
+              </button>
+              <button 
+                type="button" 
+                className="input-action-btn" 
+                title="Attach Document"
+                onClick={() => {
+                  fileInputRef.current.accept = ".pdf,.txt,.csv,.html,.rtf";
+                  fileInputRef.current.click();
+                }}
+              >
+                📄
+              </button>
+              
+              <textarea 
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask me anything..."
+                rows={1}
+                autoFocus
+              />
+              
+              <button 
+                type="button" 
+                className={`input-action-btn mic-btn ${isRecording ? 'recording' : ''}`}
+                title="Voice input"
+                onClick={() => toggleRecording()}
+              >
+                🎤
+              </button>
+              
+              <button 
+                type="submit" 
+                className="send-btn" 
+                disabled={(!input.trim() && attachments.length === 0) || isTyping}
+                title="Send message"
+              >
+                <span>➤</span>
+              </button>
+            </form>
+            <div className="input-hint">
+              Developed by <a href="https://jasimi.org" target="_blank" rel="noreferrer">jasimi.org</a>
+            </div>
+          </footer>
+        </>
+      )}
     </div>
   );
 }
