@@ -39,16 +39,25 @@ const apiFallback = () => ({
             }));
 
             const chat = model.startChat({ history });
-            const result = await chat.sendMessage(userMessage);
-            const response = await result.response;
-            const text = response.text();
+            const result = await chat.sendMessageStream(userMessage);
 
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ reply: text }));
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+
+            for await (const chunk of result.stream) {
+              const chunkText = chunk.text();
+              res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+            }
+            res.end();
           } catch (error) {
             console.error('Local API Error:', error);
-            res.statusCode = 500;
-            res.end(JSON.stringify({ error: 'Failed to generate response' }));
+            if (!res.headersSent) {
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: 'Failed to generate response' }));
+            } else {
+              res.end();
+            }
           }
         });
       } else {

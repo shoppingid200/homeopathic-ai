@@ -1,49 +1,11 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import './App.css';
-
-// Typewriter component that reveals text word by word
-function TypewriterMarkdown({ content, speed = 30, onComplete }) {
-  const [displayedText, setDisplayedText] = useState('');
-  const [isComplete, setIsComplete] = useState(false);
-  const indexRef = useRef(0);
-
-  useEffect(() => {
-    if (!content) return;
-    
-    setDisplayedText('');
-    indexRef.current = 0;
-    setIsComplete(false);
-
-    const interval = setInterval(() => {
-      indexRef.current += 3;
-      if (indexRef.current > content.length) indexRef.current = content.length;
-      const nextChunk = content.slice(0, indexRef.current);
-      setDisplayedText(nextChunk);
-
-      if (indexRef.current >= content.length) {
-        clearInterval(interval);
-        setIsComplete(true);
-        onComplete?.();
-      }
-    }, speed);
-
-    return () => clearInterval(interval);
-  }, [content, speed]);
-
-  return (
-    <div className="typewriter-wrapper">
-      <ReactMarkdown>{displayedText}</ReactMarkdown>
-      {!isComplete && <span className="typewriter-cursor">|</span>}
-    </div>
-  );
-}
 
 function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [animatingIndex, setAnimatingIndex] = useState(-1);
   const messagesEndRef = useRef(null);
   
   const scrollToBottom = () => {
@@ -66,6 +28,9 @@ function App() {
     setMessages(newMessages);
     setIsTyping(true);
 
+    // Create placeholder for assistant response
+    setMessages(prev => [...prev, { role: 'assistant', content: '', timestamp: new Date() }]);
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -79,23 +44,53 @@ function App() {
         throw new Error(`API Error: ${response.status}`);
       }
 
-      const data = await response.json();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
       
-      setMessages(prev => {
-        const updated = [...prev, { role: 'assistant', content: data.reply, timestamp: new Date() }];
-        setAnimatingIndex(updated.length - 1);
-        return updated;
-      });
+      setIsTyping(false); // Hide the bounce indicator as stream begins
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              setMessages(prev => {
+                const updated = [...prev];
+                const lastIdx = updated.length - 1;
+                updated[lastIdx] = {
+                  ...updated[lastIdx],
+                  content: updated[lastIdx].content + data.text
+                };
+                return updated;
+              });
+            } catch (e) {
+              // Ignore partial JSON parsing errors
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error("Error generating response:", error);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: "I'm sorry, I'm having trouble connecting to my knowledge base right now. Please try again later.",
-        isError: true,
-        timestamp: new Date()
-      }]);
-    } finally {
       setIsTyping(false);
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastIdx = updated.length - 1;
+        if (updated[lastIdx].content === '') {
+          updated[lastIdx] = { 
+            role: 'assistant', 
+            content: "I'm sorry, I'm having trouble connecting to my knowledge base right now. Please try again later.",
+            isError: true,
+            timestamp: new Date()
+          };
+        }
+        return updated;
+      });
     }
   };
 
@@ -169,15 +164,7 @@ function App() {
               <div className="message-content">
                 <div className={`message-bubble ${msg.isError ? 'error-bubble' : ''}`}>
                   {msg.role === 'assistant' && !msg.isError ? (
-                    index === animatingIndex ? (
-                      <TypewriterMarkdown 
-                        content={msg.content} 
-                        speed={1}
-                        onComplete={() => setAnimatingIndex(-1)}
-                      />
-                    ) : (
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
-                    )
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
                   ) : (
                     msg.content
                   )}

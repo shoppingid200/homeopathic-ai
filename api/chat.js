@@ -28,13 +28,24 @@ export default async function handler(req, res) {
     }));
 
     const chat = model.startChat({ history });
-    const result = await chat.sendMessage(userMessage);
-    const response = await result.response;
-    const text = response.text();
+    const result = await chat.sendMessageStream(userMessage);
 
-    res.status(200).json({ reply: text });
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
+    for await (const chunk of result.stream) {
+      const chunkText = chunk.text();
+      res.write(`data: ${JSON.stringify({ text: chunkText })}\n\n`);
+    }
+
+    res.end();
   } catch (error) {
     console.error('Error in chat API:', error);
-    res.status(500).json({ error: 'Failed to generate response' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to generate response' });
+    } else {
+      res.end();
+    }
   }
 }
