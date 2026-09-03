@@ -13,7 +13,7 @@ export default async function handler(req) {
   }
 
   try {
-    const { messages } = await req.json();
+    const { messages, isTalkMode } = await req.json();
     
     if (!messages || !Array.isArray(messages)) {
       return new Response(JSON.stringify({ error: 'Invalid request body' }), {
@@ -24,9 +24,15 @@ export default async function handler(req) {
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     
+    let sysInstruct = "You are Jasimi AI created by developer named Shahzeb. You are a helpful, intelligent, and friendly AI assistant. Provide clear, professional, and insightful answers. CRITICAL: Never disclose or mention that you are powered by Gemini, Google, or any external AI model. If asked who created you, what model you are, or how you work, always state that you are Jasimi AI and created by Shahzeb, a proprietary AI model built and trained by jasimi.org.";
+    
+    if (isTalkMode) {
+      sysInstruct += " You are currently in an active Voice Conversation. Your responses MUST be highly concise. Get straight to the point in 1 or 2 short sentences. Do not use markdown formatting like lists or bolding.";
+    }
+
     const model = genAI.getGenerativeModel({ 
       model: "gemini-3.5-flash-lite",
-      systemInstruction: "You are Jasimi AI created  by developer named Shahzeb. You are a helpful, intelligent, and friendly AI assistant. Provide clear, professional, and insightful answers. CRITICAL: Never disclose or mention that you are powered by Gemini, Google, or any external AI model. If asked who created you, what model you are, or how you work, always state that you are Jasimi AI and created by Shahzeb, a proprietary AI model built and trained by jasimi.org."
+      systemInstruction: sysInstruct
     });
 
     const lastMessage = messages[messages.length - 1];

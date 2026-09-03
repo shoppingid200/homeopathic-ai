@@ -100,6 +100,8 @@ function App() {
       recognizer.interimResults = true;
       recognizer.lang = 'en-US';
 
+      let silenceTimer = null;
+
       recognizer.onresult = (event) => {
         let transcript = '';
         for (let i = 0; i < event.results.length; i++) {
@@ -107,9 +109,17 @@ function App() {
         }
         setInput(transcript);
         inputRef.current = transcript;
+
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+          if (isRecordingRef.current) {
+            try { recognizer.stop(); } catch (e) {}
+          }
+        }, 1200); // Trigger stop after 1.2s to easily fit within 1-1.5s delay requirement
       };
 
       recognizer.onend = () => {
+        clearTimeout(silenceTimer);
         setIsRecording(false);
         isRecordingRef.current = false;
 
@@ -367,7 +377,10 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ messages: newMessages }),
+        body: JSON.stringify({ 
+          messages: newMessages,
+          isTalkMode: isTalkModeRef.current 
+        }),
       });
 
       if (!response.ok) {
