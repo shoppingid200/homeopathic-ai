@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
-import './App.css';
 
 function App() {
   const [messages, setMessages] = useState([]);
@@ -688,80 +687,88 @@ function App() {
                 accept="image/*,.pdf,.txt,.csv,.html,.rtf" 
                 onChange={handleFileSelect} 
               />
-              <div className="media-menu-container" ref={mediaMenuRef}>
-                <button 
-                  type="button" 
-                  className={`add-media-btn ${showMediaMenu ? 'active' : ''}`} 
-                  title="Add Media & Documents"
-                  onClick={() => setShowMediaMenu(prev => !prev)}
-                >
-                  <span className="plus-icon">+</span>
-                  <span className="add-media-label">Add Media</span>
-                </button>
-
-                {showMediaMenu && (
-                  <div className="media-dropdown-menu">
-                    <button 
-                      type="button" 
-                      className="media-dropdown-item"
-                      onClick={() => {
-                        setShowMediaMenu(false);
-                        fileInputRef.current.accept = "image/*";
-                        fileInputRef.current.click();
-                      }}
-                    >
-                      <span className="media-item-icon">🖼️</span>
-                      <div className="media-item-info">
-                        <span className="media-item-title">Upload Image</span>
-                        <span className="media-item-desc">Photos, Diagrams</span>
-                      </div>
-                    </button>
-
-                    <button 
-                      type="button" 
-                      className="media-dropdown-item"
-                      onClick={() => {
-                        setShowMediaMenu(false);
-                        fileInputRef.current.accept = ".pdf,.txt,.csv,.html,.rtf";
-                        fileInputRef.current.click();
-                      }}
-                    >
-                      <span className="media-item-icon">📄</span>
-                      <div className="media-item-info">
-                        <span className="media-item-title">Upload Document</span>
-                        <span className="media-item-desc">PDF, TXT, CSV, Docs</span>
-                      </div>
-                    </button>
-                  </div>
-                )}
+              <div className="input-text-wrapper">
+                <textarea 
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask me anything..."
+                  rows={1}
+                  autoFocus
+                />
               </div>
-              
-              <textarea 
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask me anything..."
-                rows={1}
-                autoFocus
-              />
-              
-              <button 
-                type="button" 
-                className="start-talk-mode-btn"
-                title="Start Hands-Free Talk Mode"
-                onClick={enterTalkMode}
-              >
-                🎙️ Talk Mode
-              </button>
-              
-              <button 
-                type="submit" 
-                className="send-btn" 
-                disabled={(!input.trim() && attachments.length === 0) || isTyping}
-                title="Send message"
-              >
-                <span>➤</span>
-              </button>
+
+              <div className="input-controls-row">
+                <div className="input-controls-left">
+                  <div className="media-menu-container" ref={mediaMenuRef}>
+                    <button 
+                      type="button" 
+                      className={`add-media-btn ${showMediaMenu ? 'active' : ''}`} 
+                      title="Add Media & Documents"
+                      onClick={() => setShowMediaMenu(prev => !prev)}
+                    >
+                      <span className="plus-icon">+</span>
+                      <span className="add-media-label">Add Media</span>
+                    </button>
+
+                    {showMediaMenu && (
+                      <div className="media-dropdown-menu">
+                        <button 
+                          type="button" 
+                          className="media-dropdown-item"
+                          onClick={() => {
+                            setShowMediaMenu(false);
+                            fileInputRef.current.accept = "image/*";
+                            fileInputRef.current.click();
+                          }}
+                        >
+                          <span className="media-item-icon">🖼️</span>
+                          <div className="media-item-info">
+                            <span className="media-item-title">Upload Image</span>
+                            <span className="media-item-desc">Photos, Diagrams</span>
+                          </div>
+                        </button>
+
+                        <button 
+                          type="button" 
+                          className="media-dropdown-item"
+                          onClick={() => {
+                            setShowMediaMenu(false);
+                            fileInputRef.current.accept = ".pdf,.txt,.csv,.html,.rtf";
+                            fileInputRef.current.click();
+                          }}
+                        >
+                          <span className="media-item-icon">📄</span>
+                          <div className="media-item-info">
+                            <span className="media-item-title">Upload Document</span>
+                            <span className="media-item-desc">PDF, TXT, CSV, Docs</span>
+                          </div>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="input-controls-right">
+                  <button 
+                    type="button" 
+                    className="start-talk-mode-btn"
+                    title="Start Hands-Free Talk Mode"
+                    onClick={enterTalkMode}
+                  >
+                    🎙️ <span className="talk-btn-label">Talk Mode</span>
+                  </button>
+                  
+                  <button 
+                    type="submit" 
+                    className="send-btn" 
+                    disabled={(!input.trim() && attachments.length === 0) || isTyping}
+                    title="Send message"
+                  >
+                    <span>➤</span>
+                  </button>
+                </div>
+              </div>
             </form>
             <div className="input-hint">
               Developed by <a href="https://jasimi.org" target="_blank" rel="noreferrer">jasimi.org</a>
