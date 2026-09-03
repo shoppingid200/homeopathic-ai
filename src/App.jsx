@@ -411,7 +411,6 @@ function App() {
             try {
               const data = JSON.parse(line.slice(6));
               const newText = data.text;
-              renderBuffer += newText;
               speechBuffer += newText;
               
               // Extract and stream sentences to TTS immediately!
