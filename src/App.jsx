@@ -185,9 +185,10 @@ function App() {
       
       setIsTyping(false); // Hide the bounce indicator as stream begins
       
-      let fullResponseBuffer = '';
       let renderBuffer = '';
+      let speechBuffer = '';
       let lastRenderTime = Date.now();
+      const sentenceRegex = /([.?!])(\s|\n|$)/;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -200,8 +201,27 @@ function App() {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6));
-              fullResponseBuffer += data.text;
-              renderBuffer += data.text;
+              const newText = data.text;
+              renderBuffer += newText;
+              speechBuffer += newText;
+              
+              // Handle streaming TTS
+              if (voiceEnabled && speechSynthesisRef.current) {
+                let match = speechBuffer.match(sentenceRegex);
+                while (match) {
+                  const index = match.index + match[1].length;
+                  const sentence = speechBuffer.slice(0, index);
+                  speechBuffer = speechBuffer.slice(index).trimStart();
+                  
+                  if (sentence.trim().length > 1) { // avoid speaking just punctuation
+                    setIsSpeaking(true);
+                    const textToSpeak = sentence.replace(/[*_~`#]/g, '');
+                    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+                    speechSynthesisRef.current.speak(utterance);
+                  }
+                  match = speechBuffer.match(sentenceRegex);
+                }
+              }
               
               const now = Date.now();
               // Throttle UI updates to every 50ms to prevent ReactMarkdown lag
@@ -239,19 +259,31 @@ function App() {
         });
       }
 
-      // Handle Text to Speech
+      // Final speech flush and mic restart
       if (voiceEnabled && speechSynthesisRef.current) {
-        setIsSpeaking(true);
-        // Strip markdown before speaking (basic regex)
-        const textToSpeak = fullResponseBuffer.replace(/[*_~`#]/g, '');
-        const utterance = new SpeechSynthesisUtterance(textToSpeak);
-        utterance.onend = () => {
-          setIsSpeaking(false);
-          if (isTalkModeRef.current) {
-            setTimeout(() => toggleRecording(true), 500);
-          }
-        };
-        speechSynthesisRef.current.speak(utterance);
+        if (speechBuffer.trim()) {
+          setIsSpeaking(true);
+          const textToSpeak = speechBuffer.replace(/[*_~`#]/g, '');
+          const utterance = new SpeechSynthesisUtterance(textToSpeak);
+          utterance.onend = () => {
+            setIsSpeaking(false);
+            if (isTalkModeRef.current) {
+              setTimeout(() => toggleRecording(true), 500);
+            }
+          };
+          speechSynthesisRef.current.speak(utterance);
+        } else {
+          // If no remaining text, push a dummy utterance to detect when the queue finishes
+          const dummyUtterance = new SpeechSynthesisUtterance(' ');
+          dummyUtterance.volume = 0; // silent
+          dummyUtterance.onend = () => {
+            setIsSpeaking(false);
+            if (isTalkModeRef.current) {
+              setTimeout(() => toggleRecording(true), 500);
+            }
+          };
+          speechSynthesisRef.current.speak(dummyUtterance);
+        }
       } else if (isTalkModeRef.current) {
         // If voice is somehow off but we are in talk mode, just restart listening
         setTimeout(() => toggleRecording(true), 500);
@@ -306,22 +338,6 @@ function App() {
           </div>
         </div>
         <div style={{display: 'flex', gap: '12px', alignItems: 'center'}}>
-          <button 
-            className={`voice-toggle-btn ${isTalkMode ? 'active speaking' : ''}`}
-            onClick={() => {
-              if (isTalkMode) {
-                setIsTalkMode(false);
-                toggleRecording(false);
-                speechSynthesisRef.current?.cancel();
-              } else {
-                setIsTalkMode(true);
-                toggleRecording(true);
-              }
-            }}
-            title={isTalkMode ? "End Talk Mode" : "Start Talk Mode"}
-          >
-            🎙️
-          </button>
           <button 
             className={`voice-toggle-btn ${voiceEnabled ? 'active' : ''} ${isSpeaking ? 'speaking' : ''}`}
             onClick={toggleVoice}
@@ -505,11 +521,14 @@ function App() {
               
               <button 
                 type="button" 
-                className={`input-action-btn mic-btn ${isRecording ? 'recording' : ''}`}
-                title="Voice input"
-                onClick={() => toggleRecording()}
+                className="start-talk-mode-btn"
+                title="Start Hands-Free Talk Mode"
+                onClick={() => {
+                  setIsTalkMode(true);
+                  toggleRecording(true);
+                }}
               >
-                🎤
+                🎙️ Talk Mode
               </button>
               
               <button 
