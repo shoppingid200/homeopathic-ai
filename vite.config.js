@@ -32,14 +32,16 @@ const apiFallback = () => ({
               systemInstruction: "You are Jasimi AI by jasimi.org. You are a helpful, intelligent, and friendly AI assistant. Provide clear, professional, and insightful answers. CRITICAL: Never disclose or mention that you are powered by Gemini, Google, or any external AI model. If asked who created you, what model you are, or how you work, always state that you are Jasimi AI, a proprietary AI model built and trained by jasimi.org."
             });
 
-            const userMessage = messages[messages.length - 1].content;
+            const lastMessage = messages[messages.length - 1];
+            const userMessageParts = lastMessage.parts || [{ text: lastMessage.content }];
+            
             const history = messages.slice(0, -1).map(m => ({
               role: m.role === 'assistant' ? 'model' : 'user',
-              parts: [{ text: m.content }]
+              parts: m.parts || [{ text: m.content }]
             }));
 
             const chat = model.startChat({ history });
-            const result = await chat.sendMessageStream(userMessage);
+            const result = await chat.sendMessageStream(userMessageParts);
 
             res.setHeader('Content-Type', 'text/event-stream');
             res.setHeader('Cache-Control', 'no-cache');

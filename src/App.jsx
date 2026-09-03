@@ -6,7 +6,11 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [attachments, setAttachments] = useState([]);
+  const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const recognitionRef = useRef(null);
   
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -16,15 +20,109 @@ function App() {
     scrollToBottom();
   }, [messages, isTyping]);
 
+  useEffect(() => {
+    // Initialize Speech Recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'en-US';
+
+      recognitionRef.current.onresult = (event) => {
+        const transcript = event.results[0][0].transcript;
+        setInput((prev) => prev + (prev ? ' ' : '') + transcript);
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsRecording(false);
+      };
+
+      recognitionRef.current.onerror = (event) => {
+        console.error('Speech recognition error', event.error);
+        setIsRecording(false);
+      };
+    }
+  }, []);
+
+  const toggleRecording = () => {
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+    } else {
+      if (recognitionRef.current) {
+        recognitionRef.current.start();
+        setIsRecording(true);
+      } else {
+        alert("Voice recognition is not supported in this browser.");
+      }
+    }
+  };
+
+  const handleFileSelect = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length + attachments.length > 3) {
+      alert("You can only upload up to 3 files at a time.");
+      return;
+    }
+
+    files.forEach(file => {
+      // Check size (e.g., 4MB limit to stay under Vercel's 4.5MB total limit)
+      if (file.size > 4 * 1024 * 1024) {
+        alert(`File ${file.name} is too large. Limit is 4MB.`);
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64Data = event.target.result.split(',')[1];
+        setAttachments(prev => [...prev, {
+          name: file.name,
+          type: file.type,
+          data: base64Data,
+          previewUrl: file.type.startsWith('image/') ? event.target.result : null
+        }]);
+      };
+      reader.readAsDataURL(file);
+    });
+    
+    // Reset input
+    e.target.value = null;
+  };
+
+  const removeAttachment = (index) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleSend = async (e) => {
     e?.preventDefault();
     
-    if (!input.trim()) return;
+    if (!input.trim() && attachments.length === 0) return;
     
     const userText = input.trim();
     setInput('');
+    const currentAttachments = [...attachments];
+    setAttachments([]);
     
-    const newMessages = [...messages, { role: 'user', content: userText, timestamp: new Date() }];
+    // Build parts array for API
+    const parts = [];
+    if (userText) parts.push({ text: userText });
+    currentAttachments.forEach(att => {
+      parts.push({
+        inlineData: {
+          mimeType: att.type,
+          data: att.data
+        }
+      });
+    });
+
+    const newMessages = [...messages, { 
+      role: 'user', 
+      content: userText, 
+      parts: parts,
+      attachments: currentAttachments.map(a => ({ name: a.name, type: a.type, previewUrl: a.previewUrl })),
+      timestamp: new Date() 
+    }];
     setMessages(newMessages);
     setIsTyping(true);
 
@@ -163,6 +261,20 @@ function App() {
               </div>
               <div className="message-content">
                 <div className={`message-bubble ${msg.isError ? 'error-bubble' : ''}`}>
+                  {msg.attachments && msg.attachments.length > 0 && (
+                    <div className="message-attachments-display">
+                      {msg.attachments.map((att, i) => (
+                        <div key={i} className="attachment-item-display" title={att.name}>
+                          {att.previewUrl ? (
+                            <img src={att.previewUrl} alt={att.name} />
+                          ) : (
+                            <div className="doc-icon">📄</div>
+                          )}
+                          <span className="attachment-name-display">{att.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {msg.role === 'assistant' && !msg.isError ? (
                     <ReactMarkdown>{msg.content}</ReactMarkdown>
                   ) : (
@@ -193,7 +305,53 @@ function App() {
       </main>
 
       <footer className="input-area">
+        {attachments.length > 0 && (
+          <div className="attachments-preview-bar">
+            {attachments.map((att, i) => (
+              <div key={i} className="attachment-preview-item">
+                {att.previewUrl ? (
+                  <img src={att.previewUrl} alt="preview" />
+                ) : (
+                  <div className="doc-icon">📄</div>
+                )}
+                <span className="att-name">{att.name}</span>
+                <button type="button" onClick={() => removeAttachment(i)} className="remove-att-btn">×</button>
+              </div>
+            ))}
+          </div>
+        )}
         <form className="input-container" onSubmit={handleSend}>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            style={{ display: 'none' }} 
+            multiple 
+            accept="image/*,.pdf,.txt,.csv,.html,.rtf" 
+            onChange={handleFileSelect} 
+          />
+          <button 
+            type="button" 
+            className="input-action-btn" 
+            title="Attach Image"
+            onClick={() => {
+              fileInputRef.current.accept = "image/*";
+              fileInputRef.current.click();
+            }}
+          >
+            🖼️
+          </button>
+          <button 
+            type="button" 
+            className="input-action-btn" 
+            title="Attach Document"
+            onClick={() => {
+              fileInputRef.current.accept = ".pdf,.txt,.csv,.html,.rtf";
+              fileInputRef.current.click();
+            }}
+          >
+            📄
+          </button>
+          
           <textarea 
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -202,10 +360,20 @@ function App() {
             rows={1}
             autoFocus
           />
+          
+          <button 
+            type="button" 
+            className={`input-action-btn mic-btn ${isRecording ? 'recording' : ''}`}
+            title="Voice input"
+            onClick={toggleRecording}
+          >
+            🎤
+          </button>
+          
           <button 
             type="submit" 
             className="send-btn" 
-            disabled={!input.trim() || isTyping}
+            disabled={(!input.trim() && attachments.length === 0) || isTyping}
             title="Send message"
           >
             <span>➤</span>
